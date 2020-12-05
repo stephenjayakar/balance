@@ -18,27 +18,35 @@ class BalanceTracker:
         self.client_id = client_id
         self.secret = secret
         self.access_token = access_token
-
         request_body = {
             "client_id": self.client_id,
             "secret": self.secret,
             "access_token": self.access_token,
         }
-        self.response = requests.post(url=f'{URL_BASE}/accounts/balance/get', json=request_body).json()
-        # compute current balance plus account_id
-        # assuming the max balance is the current balance
-        self._current_balance = 0
-        self._account_id = ""
-        for account in self.response['accounts']:
+        self._response = requests.post(url=f'{URL_BASE}/accounts/balance/get', json=request_body).json()
+        self.print_account_information()
+
+    def print_account_information(self):
+        for account in self._response['accounts']:
+            print(account['account_id'], account['name'], account['balances']['available'])
+
+    def _max_account_id(self):
+        account_id = None
+        balance = 0
+        for account in self._response['accounts']:
             bal = account['balances']['available']
-            if bal > self._current_balance:
-                self._current_balance = bal
-                self._account_id = account['account_id']
+            if bal > balance:
+                balance = bal
+                account_id = account['account_id']
+        return account_id
 
-    def current_balance(self):
-        return self._current_balance
+    def current_balance(self, account_id):
+        balance = 0
+        for account in self._response['accounts']:
+            if account['account_id'] == account_id:
+                return account['balances']['available']
 
-    def balances_over_days(self, num_days):
+    def balances_over_days(self, num_days, _account_id=None):
         # get complete transactions object
         today = get_today()
         start_day = get_x_days_ago(num_days)
@@ -53,11 +61,11 @@ class BalanceTracker:
             },
         }
         response = requests.post(url=f'{URL_BASE}/transactions/get', json=request_body).json()
+
         transactions = response['transactions']
         num_transactions = response['total_transactions']
         print(f'Number of transactions: {num_transactions}')
         num_received_transactions = len(transactions)
-        # TODO: debug this as I'm not really testing this now
         while num_received_transactions < num_transactions:
             request_body['options']['offset'] = num_received_transactions
             next_response = None
@@ -69,19 +77,21 @@ class BalanceTracker:
                 except:
                     time.sleep(1)
 
+        # if no account id is provided, use the one with the max balance by default
+        account_id = _account_id if _account_id else self._max_account_id()
         # compute balances over days
-        balance = self.current_balance()
+        balance = self.current_balance(account_id)
         balances = [balance]
         for i in range(num_days):
             day = get_x_days_ago(i)
-            balance += self._one_day_of_expenses(day, transactions)
+            balance += self._one_day_of_expenses(day, transactions, account_id)
             balances.append(balance)
         return list(reversed(balances))
 
-    def _one_day_of_expenses(self, day, transactions):
+    def _one_day_of_expenses(self, day, transactions, account_id):
         total_expenses = 0
         for txn in transactions:
-            if txn['account_id'] != self._account_id or txn['date'] != day:
+            if txn['account_id'] != account_id or txn['date'] != day:
                 continue
             total_expenses += txn['amount']
         return total_expenses
