@@ -1,0 +1,5 @@
+##### Dependencies
+plaid-python>=7.0.0
+jupyter==1.0.0
+matplotlib==3.3.3
+ipympl==0.5.8

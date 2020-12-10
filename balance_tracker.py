@@ -1,8 +1,6 @@
 import datetime
-import requests
+import plaid
 import time
-
-URL_BASE = 'https://development.plaid.com'
 
 def day_format(dt):
     return str(dt).split()[0]
@@ -15,20 +13,17 @@ def get_x_days_ago(x):
 
 class BalanceTracker:
     def __init__(self, client_id, secret, access_token):
-        self.client_id = client_id
-        self.secret = secret
+        self.plaid_client = plaid.Client(client_id, secret, 'development')
         self.access_token = access_token
-        request_body = {
-            "client_id": self.client_id,
-            "secret": self.secret,
-            "access_token": self.access_token,
-        }
-        self._response = requests.post(url=f'{URL_BASE}/accounts/balance/get', json=request_body).json()
-        self.print_account_information()
+        self._response = self.plaid_client.Accounts.balance.get(access_token)
 
     def print_account_information(self):
         for account in self._response['accounts']:
             print(account['account_id'], account['name'], account['balances']['available'])
+
+    def account_id_from_offset(self, i: int):
+        account = self._response['accounts'][i]
+        return account['account_id']
 
     def _max_account_id(self):
         account_id = None
@@ -50,28 +45,18 @@ class BalanceTracker:
         # get complete transactions object
         today = get_today()
         start_day = get_x_days_ago(num_days)
-        request_body = {
-            "client_id": self.client_id,
-            "secret": self.secret,
-            "access_token": self.access_token,
-            "start_date": start_day,
-            "end_date": today,
-            "options": {
-                "count": 500,
-            },
-        }
-        response = requests.post(url=f'{URL_BASE}/transactions/get', json=request_body).json()
+        response = self.plaid_client.Transactions.get(self.access_token, start_day, today, count=500)
 
         transactions = response['transactions']
         num_transactions = response['total_transactions']
         print(f'Number of transactions: {num_transactions}')
         num_received_transactions = len(transactions)
         while num_received_transactions < num_transactions:
-            request_body['options']['offset'] = num_received_transactions
+            offset = num_received_transactions
             next_response = None
             while not next_response:
                 try:
-                    next_response = requests.post(url=f'{URL_BASE}/transactions/get', json=request_body).json()
+                    next_response = self.plaid_client.Transactions.get(self.access_token, start_day, today, count=500, offset=offset)
                     num_received_transactions += len(next_response['transactions'])
                     transactions.extend(next_response['transactions'])
                 except:
